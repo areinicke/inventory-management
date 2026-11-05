@@ -1,8 +1,10 @@
+import random
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
-from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
+from pydantic import BaseModel, Field
+from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders, restock_orders
 
 app = FastAPI(title="Factory Inventory Management System")
 
@@ -120,6 +122,30 @@ class CreatePurchaseOrderRequest(BaseModel):
     expected_delivery_date: str
     notes: Optional[str] = None
 
+# Note: unit_cost (not unit_price) is intentional here - this represents a
+# procurement cost, unlike Order.items[] which represents a sale to a customer.
+class RestockOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int = Field(gt=0)
+    unit_cost: float = Field(ge=0)
+    line_total: float
+
+class CreateRestockOrderRequest(BaseModel):
+    budget: float = Field(ge=0)
+    items: List[RestockOrderItem]
+
+class RestockOrder(BaseModel):
+    id: str
+    order_number: str
+    budget: float
+    items: List[RestockOrderItem]
+    total_value: float
+    status: str
+    order_date: str
+    lead_time_days: int
+    expected_delivery: str
+
 # API endpoints
 @app.get("/")
 def root():
@@ -160,6 +186,56 @@ def get_order(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+@app.post("/api/restock-orders", response_model=RestockOrder, status_code=201)
+def create_restock_order(request: CreateRestockOrderRequest):
+    """Submit a restocking order built from demand-forecast recommendations"""
+    if not request.items:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+
+    valid_skus = {item["sku"] for item in inventory_items}
+    for item in request.items:
+        if item.sku not in valid_skus:
+            raise HTTPException(status_code=400, detail=f"Unknown SKU: {item.sku}")
+
+    recomputed_items = []
+    total_value = 0.0
+    for item in request.items:
+        line_total = round(item.quantity * item.unit_cost, 2)
+        recomputed_items.append({
+            "sku": item.sku,
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit_cost": item.unit_cost,
+            "line_total": line_total
+        })
+        total_value += line_total
+
+    next_num = len(restock_orders) + 1
+    order_id = str(next_num)
+    order_number = f"RST-{next_num:04d}"
+    lead_time_days = random.randint(7, 21)
+    order_date = datetime.now(timezone.utc)
+    expected_delivery = order_date + timedelta(days=lead_time_days)
+
+    restock_order = {
+        "id": order_id,
+        "order_number": order_number,
+        "budget": request.budget,
+        "items": recomputed_items,
+        "total_value": round(total_value, 2),
+        "status": "Submitted",
+        "order_date": order_date.isoformat(),
+        "lead_time_days": lead_time_days,
+        "expected_delivery": expected_delivery.isoformat()
+    }
+    restock_orders.append(restock_order)
+    return restock_order
+
+@app.get("/api/restock-orders", response_model=List[RestockOrder])
+def get_restock_orders():
+    """Get all submitted restocking orders"""
+    return restock_orders
 
 @app.get("/api/demand", response_model=List[DemandForecast])
 def get_demand_forecasts():
