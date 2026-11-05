@@ -18,12 +18,25 @@ Use the Task tool with these specialized subagents for appropriate tasks:
 
 ### Skills
 - **backend-api-test** skill: Use when writing or modifying tests in `tests/backend` directory with pytest and FastAPI TestClient
+- **start** / **stop** skills: Start or stop the frontend/backend dev servers (handles killing existing processes on 3000/8001 first)
+
+### Custom Slash Commands
+- `/demo-branch` - Create a new demo branch with an auto-incrementing number
+- `/reset-branch` - Switch to main and delete the previous branch (⚠️ destructive: force-deletes, hard-resets, cleans untracked files)
+- `/test` - Run frontend and backend tests with reporting
+- `/optimize` - Optimize the codebase
 
 ### MCP Tools
 - **ALWAYS use GitHub MCP tools** (`mcp__github__*`) for ALL GitHub operations
   - Exception: Local branches only - use `git checkout -b` instead of `mcp__github__create_branch`
 - **ALWAYS use Playwright MCP tools** (`mcp__playwright__*`) for browser testing
   - Test against: `http://localhost:3000` (frontend), `http://localhost:8001` (API)
+- Servers configured in `.claude/mcp-config.json`
+
+### Nested CLAUDE.md Files
+- `server/CLAUDE.md` - FastAPI conventions (RESTful patterns, Pydantic models, filtering, error handling)
+- `client/CLAUDE.md` - Vue 3 conventions (component structure, composables, data-loading pattern)
+- Read the relevant one before making non-trivial changes in that subsystem
 
 ## Stack
 - **Frontend**: Vue 3 + Composition API + Vite (port 3000)
@@ -35,11 +48,31 @@ Use the Task tool with these specialized subagents for appropriate tasks:
 ```bash
 # Backend
 cd server
+uv sync
 uv run python main.py
+# API docs at http://localhost:8001/docs
 
 # Frontend
 cd client
 npm install && npm run dev
+```
+
+Or use the **start** / **stop** skills, which also kill any existing processes on 3000/8001 first.
+
+## Testing
+
+```bash
+cd tests
+uv run pytest -v
+```
+
+51 tests across `tests/backend/` (inventory, orders, dashboard, misc endpoints), configured by `tests/pytest.ini`. Run a single file with `uv run pytest backend/test_inventory.py -v`. Use the **backend-api-test** skill when writing or modifying tests, or the `/test` slash command to run frontend and backend tests together with reporting.
+
+## Build
+
+```bash
+cd client
+npm run build   # outputs to client/dist/
 ```
 
 ## Key Patterns
@@ -50,10 +83,13 @@ npm install && npm run dev
 
 ## API Endpoints
 - `GET /api/inventory` - Filters: warehouse, category
+- `GET /api/inventory/{item_id}` - 404 if not found
 - `GET /api/orders` - Filters: warehouse, category, status, month
+- `GET /api/orders/{order_id}` - 404 if not found
 - `GET /api/dashboard/summary` - All filters
 - `GET /api/demand`, `/api/backlog` - No filters
 - `GET /api/spending/*` - Summary, monthly, categories, transactions
+- `GET /api/reports/quarterly`, `/api/reports/monthly-trends` - No filters
 
 ## Common Issues
 1. Use unique keys in v-for (not `index`) - use `sku`, `month`, etc.
